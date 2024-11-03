@@ -4,6 +4,10 @@ from geopy.geocoders import Nominatim
 from datetime import datetime
 from typing import Dict, Tuple, List
 import math
+from llama_cpp import Llama
+import os
+from time import time
+
 
 @st.cache_data(ttl=3600)
 def fetch_weather_data(url: str, params: Dict) -> Dict:
@@ -764,6 +768,117 @@ class SoilWeatherAnalyzer:
                     }
                 }
 
+        
+
+class CropAdvisorLLM:
+    def __init__(self):
+        print("Initializing Mistral model...")
+        self.llm = Llama(
+            model_path="mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+            n_ctx=2048,
+            n_threads=os.cpu_count(),
+            n_gpu_layers=0,verbose=False
+        )
+        print("Model initialized successfully!")
+
+    def get_recommendations(self, location_data):
+        prompt = f"""<s>[INST] You are an agricultural expert. I need specific crop recommendations for this specific location only and conditions.
+
+Current Conditions:
+Location: {location_data['region']}
+Temperature: {location_data['weather_analysis']['current']['temperature']['value']}°C
+Humidity: {location_data['weather_analysis']['current']['humidity']['value']}%
+Season: {location_data['season']}
+Soil: {location_data['soil_analysis']['basic_properties']['detailed_characteristics']['soil_composition']['texture']}
+
+Generate 3 specific crop recommendations based on these location conditions. List them in order of suitability.
+TYPE :[category] should be one among fruits,vegetables,cereals,pulses,flowers,leafy vegetables
+
+First analyze the region's traditional crop patterns, then list 5 most suitable crops considering both regional success 
+                and current conditions. Format each recommendation as:
+
+
+
+1. CROP: [name] | TYPE: [category] | SCORE: [1-100] | REASON: [Include regional significance if applicable]
+
+
+
+Your recommendations: [/INST]
+
+"""
+
+        print("\nGenerating recommendations...")
+        start_time = time()
+
+        try:
+            response = self.llm(
+                prompt,
+                max_tokens=2048,
+                temperature=0.9,  # Lower temperature for more focused output
+                top_p=0.9,
+                repeat_penalty=1.2,
+                stop=["[INST]", "</s>"]
+            )
+
+            generated_text = response['choices'][0]['text']
+            print("\nRaw response:", generated_text)  # Debug print
+
+            recommendations = self.parse_recommendations("1." + generated_text)
+            end_time = time()
+            print(f"Generation time: {end_time - start_time:.2f} seconds")
+
+            return recommendations
+
+        except Exception as e:
+            print(f"Error in generation: {str(e)}")
+            return []
+
+    def parse_recommendations(self, text):
+        recommendations = []
+        current_items = []
+        
+        # Split by newlines and process each line
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            # Check if line starts with a number and contains a pipe
+            if (line.startswith(('1.', '2.', '3.')) or len(current_items) > 0) and '|' in line:
+                # Remove the number prefix if it exists
+                if line[0].isdigit():
+                    line = line.split('.', 1)[1].strip()
+                
+                # Split by pipes and extract components
+                parts = [part.strip() for part in line.split('|')]
+                if len(parts) >= 4:
+                    rec = {
+                        'crop': parts[0],
+                        'type': parts[1],
+                        'score': parts[2],
+                        'reason': parts[3]
+                    }
+                    recommendations.append(rec)
+
+        return recommendations
+
+def print_recommendations(recommendations, region):
+    print(f"\nRECOMMENDED CROPS FOR {region}")
+    print("=" * 60)
+    
+    if recommendations:
+        for i, rec in enumerate(recommendations, 1):
+            print(f"\n{i}. {rec['crop'].upper()}")
+            print(f"   Category: {rec['type']}")
+            print(f"   Suitability: {rec['score']}")
+            print(f"   Reason: {rec['reason']}")
+    else:
+        print("No recommendations generated. Retrying with different parameters...")
+        return False
+    return True
+
+
+ 
+
+
 def main():
         st.title("Advanced Soil and Weather Analysis System")
         
@@ -772,6 +887,7 @@ def main():
             choice = st.radio("Choose location input:", ("Enter Location", "Current Location"))
         
         analyzer = SoilWeatherAnalyzer()
+        advisor = CropAdvisorLLM()
         # Initialize variables
         lat = None
         lon = None
@@ -798,7 +914,7 @@ def main():
             result = analyzer.analyze_location(lat, lon, address)
             
             if result:
-                tabs = st.tabs(["Location & Weather", "Soil Analysis", "Environmental Risks", "Forecast"])
+                tabs = st.tabs(["Location & Weather", "Soil Analysis", "Environmental Risks", "Forecast","Crop Advisor"])
                 
                 with tabs[0]:
                     col1, col2 = st.columns(2)
@@ -829,10 +945,27 @@ def main():
                     st.subheader("Weather Forecast")
                     st.json(result['weather_analysis']['forecast'])
 
-                # Store the result in session state
+                with tabs[4]:
+                    st.subheader("Crop Recommendations")
+                    with st.spinner("Generating crop recommendations..."):
+                        progress_bar = st.progress(0)
+                        print(f"\nAnalyzing conditions for {result['region']}")
+                        recommendations = advisor.get_recommendations(result)
+                        success = print_recommendations(recommendations, result['region'])
+                        progress_bar.progress(100)
+                        st.write(recommendations)
+                        
+                        if not success:
+                                # Retry with different parameters
+                            print("\nRetrying with adjusted parameters...")
+                            advisor.llm.context_params.temperature = 0.5
+                            recommendations = advisor.get_recommendations(result)
+                            print_recommendations(recommendations, result['region'])
+                            st.write(recommendations)
+
                 st.session_state['analysis_result'] = result
             else:
-                st.error("Unable to analyze location. Please try again.")
+                    st.error("Unable to analyze location. Please try again.")
 
 if __name__ == "__main__":
     main()
