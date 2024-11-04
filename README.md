@@ -4,6 +4,8 @@
 
 Agri AI is an advanced Gen AI application designed to empower new farmers with comprehensive agricultural insights. By combining location intelligence, environmental analysis, crop recommendations, yield predictions, and financial management, it provides a complete farming assistant in one user-friendly platform.
 
+# video demo - https://drive.google.com/file/d/1vo-4yXwpKrgR4Jy_aiy_LhX0PRx94PK_/view?usp=sharing
+# screenshots of application- https://drive.google.com/drive/folders/1sWXyHqeXpJaiyfvZmVyyjv9ffTV3jD9u?usp=sharing
 ## 🌟 Key Features
 
 ### 1. Smart Location Detection
@@ -165,7 +167,11 @@ You'll need API keys for:
 3. Download the Mistral model
 4. Set up your API keys
 5. Run the application
-
+   
+## crop advisor application
 ```streamlit run final.py ```
+
+## yield prediction and dashboard 
+```streamlit run yield_app.py```
 
 
